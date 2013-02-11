@@ -480,8 +480,11 @@ listen = /var/run/php-fpm.socket
 pm = dynamic
 pm.max_children = 64
 pm.start_servers = 16
-pm.min_spare_servers = 16
-pm.max_spare_servers = 32
+pm.min_spare_servers = 8
+pm.max_spare_servers = 16
+
+slowlog = $LOGS_ROOT/php/\$pool.log.slow
+request_slowlog_timeout = 3
 
 EOF
 }
