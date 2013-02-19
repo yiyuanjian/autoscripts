@@ -481,15 +481,15 @@ user = $WEB_SERVER_USER
 group = $WEB_SERVER_GROUP
 
 listen = /var/run/php-fpm.socket
-listen.backlog = 1024
+listen.backlog = 256
 
 pm = dynamic
 pm.max_children = 128
 pm.start_servers = 16
-pm.min_spare_servers = 8
-pm.max_spare_servers = 16
+pm.min_spare_servers = 16
+pm.max_spare_servers = 32
 
-pm.max_requests = 2048
+pm.max_requests = 204800
 
 slowlog = $LOGS_ROOT/php/\$pool.log.slow
 request_slowlog_timeout = 3
