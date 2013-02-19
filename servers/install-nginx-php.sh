@@ -154,9 +154,9 @@ function nginx_make_install {
 function nginx_config {
     cat > $NGINX_CONFDIR/nginx.conf << EOF
 user  web;
-worker_processes  4;
+worker_processes  16;
 
-error_log  logs/error.log;
+error_log  $LOGS_ROOT/php/error.log;
 pid        logs/nginx.pid;
 
 events {
@@ -254,6 +254,9 @@ do
     mv \$log \$log.\$DAY
   fi
 done
+
+error_log=`cat \$NGINX_CONFDIR/nginx.conf | grep error_log | grep -v '#' | awk '{print \$2}'`
+mv \$error_log \$error_log.\$DAY
 
 #\$NGINX_BIN -s reload
 kill -USR1 \`cat \$NGINX_PID\`
