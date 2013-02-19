@@ -473,18 +473,23 @@ EOF
 
 [global]
 pid = run/php-fpm.pid
+error_log=$LOG_ROOT/php/php-fpm-error.log
+log_level = error
 
 [www]
 user = $WEB_SERVER_USER
 group = $WEB_SERVER_GROUP
 
 listen = /var/run/php-fpm.socket
+listen.backlog = 1024
 
 pm = dynamic
-pm.max_children = 64
+pm.max_children = 128
 pm.start_servers = 16
 pm.min_spare_servers = 8
 pm.max_spare_servers = 16
+
+pm.max_requests = 2048
 
 slowlog = $LOGS_ROOT/php/\$pool.log.slow
 request_slowlog_timeout = 3
