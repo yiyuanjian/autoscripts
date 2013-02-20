@@ -17,7 +17,8 @@ INSTALL_LOG=$TMP_DIR/install.log
 NGINX_ROOT=/opt/nginx
 NGINX_BIN=$NGINX_ROOT/sbin/nginx
 NGINX_CONFDIR=$NGINX_ROOT/conf/
-NGINX_SPLITLOG=$NGINX_ROOT/sbin/splitlog.sh
+NGINX_
+LOG=$NGINX_ROOT/sbin/splitlog.sh
 NGINX_VERSION=1.2.4
 
 
@@ -255,7 +256,7 @@ do
   fi
 done
 
-error_log=`cat \$NGINX_CONFDIR/nginx.conf | grep error_log | grep -v '#' | awk '{print \$2}'`
+error_log=\`cat \$NGINX_CONFDIR/nginx.conf | grep error_log | grep -v '#' | awk '{print \$2}'\`
 mv \$error_log \$error_log.\$DAY
 
 #\$NGINX_BIN -s reload
