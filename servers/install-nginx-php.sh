@@ -17,8 +17,7 @@ INSTALL_LOG=$TMP_DIR/install.log
 NGINX_ROOT=/opt/nginx
 NGINX_BIN=$NGINX_ROOT/sbin/nginx
 NGINX_CONFDIR=$NGINX_ROOT/conf/
-NGINX_
-LOG=$NGINX_ROOT/sbin/splitlog.sh
+NGINX_LOG=$NGINX_ROOT/sbin/splitlog.sh
 NGINX_VERSION=1.2.4
 
 
@@ -155,7 +154,7 @@ function nginx_make_install {
 function nginx_config {
     cat > $NGINX_CONFDIR/nginx.conf << EOF
 user  web;
-worker_processes  16;
+worker_processes  8;
 
 error_log  $LOGS_ROOT/php/error.log;
 pid        logs/nginx.pid;
