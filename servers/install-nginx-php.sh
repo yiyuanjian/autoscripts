@@ -17,7 +17,7 @@ INSTALL_LOG=$TMP_DIR/install.log
 NGINX_ROOT=/opt/nginx
 NGINX_BIN=$NGINX_ROOT/sbin/nginx
 NGINX_CONFDIR=$NGINX_ROOT/conf/
-NGINX_LOG=$NGINX_ROOT/sbin/splitlog.sh
+NGINX_SPLITLOG=$NGINX_ROOT/sbin/splitlog.sh
 NGINX_VERSION=1.2.4
 
 
@@ -112,7 +112,7 @@ function create_default_page {
 ####### install packages that nginx php need
 function install_dependency {
     print_processing "install dependency packages...."
-    yum install -y pcre pcre-devel openssl openssl-devel zlib zlib-devel curl curl-devel libmcrypt libmcrypt-devel crypto-utils glibc glibc-devel >> $INSTALL_LOG
+    yum install -y gcc autoconf make pcre pcre-devel openssl openssl-devel zlib zlib-devel curl curl-devel libmcrypt libmcrypt-devel crypto-utils glibc glibc-devel libxml2 libxml2-devel >> $INSTALL_LOG
     if [ $? -ne 0 ]; then
         print_fail
     else
@@ -154,9 +154,9 @@ function nginx_make_install {
 function nginx_config {
     cat > $NGINX_CONFDIR/nginx.conf << EOF
 user  web;
-worker_processes  8;
+worker_processes  2;
 
-error_log  $LOGS_ROOT/php/error.log;
+error_log  $LOGS_ROOT/nginx/error.log;
 pid        logs/nginx.pid;
 
 events {
@@ -262,7 +262,7 @@ mv \$error_log \$error_log.\$DAY
 kill -USR1 \`cat \$NGINX_PID\`
 EOF
 
-
+chmox +x $NGINX_SPLITLOG
 
 ####### add to crontab
     print_info "add split log script to crontab"
@@ -473,7 +473,7 @@ EOF
 
 [global]
 pid = run/php-fpm.pid
-error_log=$LOG_ROOT/php/php-fpm-error.log
+error_log=$LOGS_ROOT/php/php-fpm-error.log
 log_level = error
 
 [www]
