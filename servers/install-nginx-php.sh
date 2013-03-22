@@ -99,7 +99,7 @@ function create_dirs {
     print_processing "Create directories.."
     mkdir -p $WEBSITE_ROOT/{default,public}
     mkdir -p $LOGS_ROOT/{nginx/default,php,mysql,apps}
-    chown -R $WEB_SERVER_USER:$WEB_SERVER_GROUP $WEBSITE_ROOT $LOGS_ROOT/nginx $LOGS_ROOT/php
+    chown -R $WEB_SERVER_USER:$WEB_SERVER_GROUP $WEBSITE_ROOT $LOGS_ROOT
     mkdir -p $DB_ROOT/{mysql}
     print_ok
 }
