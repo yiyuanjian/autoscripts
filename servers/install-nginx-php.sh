@@ -262,7 +262,7 @@ mv \$error_log \$error_log.\$DAY
 kill -USR1 \`cat \$NGINX_PID\`
 EOF
 
-chmox +x $NGINX_SPLITLOG
+chmod +x $NGINX_SPLITLOG
 
 ####### add to crontab
     print_info "add split log script to crontab"
