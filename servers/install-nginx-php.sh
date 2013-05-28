@@ -18,14 +18,14 @@ NGINX_ROOT=/opt/nginx
 NGINX_BIN=$NGINX_ROOT/sbin/nginx
 NGINX_CONFDIR=$NGINX_ROOT/conf/
 NGINX_SPLITLOG=$NGINX_ROOT/sbin/splitlog.sh
-NGINX_VERSION=1.2.4
+NGINX_VERSION=1.2.9
 
 
 PHP_ROOT=/opt/php
 PHP_FPM_BIN=$PHP_ROOT/sbin/php-fpm
 PHP_CONFIG_FILE=$PHP_ROOT/lib/php.ini
 PHP_EXTENSION_DIR=$PHP_ROOT/lib/php/extensions/no-debug-non-zts-20100525
-PHP_VERSION=5.4.10
+PHP_VERSION=5.4.15
 
 ################ Common function ####################
 function print_error {
@@ -124,6 +124,12 @@ function install_dependency {
 ##################### start install nginx ###################
 function nginx_download {
     cd $TMP_DIR
+    if [ -f /tmp/nginx-$NGINX_VERSION.tar.gz ]; then
+        echo "just use exist nginx source code package"
+        cp /tmp/nginx-$NGINX_VERSION.tar.gz $TMP_DIR
+        return
+    fi
+
     wget -O nginx-$NGINX_VERSION.tar.gz http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz >>$INSTALL_LOG 2>&1
 
     if [ $? -ne 0 ]; then
@@ -138,7 +144,7 @@ function nginx_make_install {
 
     cd nginx-*
     sed -i -e "s/\"$NGINX_VERSION\"/\"0.$NGINX_VERSION\"/g" -e 's/"nginx\/"/"webServer\/"/g' ./src/core/nginx.h
-    ./configure --prefix=$NGINX_ROOT --with-openssl=/usr >>$INSTALL_LOG
+    ./configure --prefix=$NGINX_ROOT --with-openssl=/usr --with-http_stub_status_module >>$INSTALL_LOG
     if [ $? -ne 0 ]; then
         print_error "Config nginx failed"
         exit 1
@@ -201,6 +207,11 @@ server {
     charset utf-8;
 
     root $WEBSITE_ROOT/default;
+
+    location /nginx_status {
+        stub_status on;
+        access_log off;
+    }
 
     location / {
         index  index.html index.php;
@@ -422,6 +433,12 @@ function install_nginx {
 
 function php5_download {
     cd $TMP_DIR
+    if [ -f /tmp/php-$PHP_VERSION.tar.bz2 ]; then
+        echo "just use exist php source code package"
+        cp /tmp/php-$PHP_VERSION.tar.bz2 $TMP_DIR
+        return
+    fi
+
     wget -O php-$PHP_VERSION.tar.bz2 http://www.php.net/get/php-$PHP_VERSION.tar.bz2/from/kr1.php.net/mirror >> $INSTALL_LOG 2>&1
     if [ $? -ne 0 ]; then
         print_error "download php failed"
@@ -432,7 +449,24 @@ function php5_download {
 function php5_make_install {
     tar jxf php-$PHP_VERSION.tar.bz2
     cd php-$PHP_VERSION
-    ./configure --prefix=$PHP_ROOT --enable-fpm --enable-sigchild --enable-mbstring --enable-shmop --enable-soap --enable-sockets --enable-sysvmsg --enable-sysvsem --enable-sysvshm --enable-zip --with-curl --enable-mysqlnd --with-mysql --with-mcrypt --with-openssl --enable-bcmath >>$INSTALL_LOG
+    ./configure --prefix=$PHP_ROOT \
+    --enable-fpm \
+    --enable-sigchild \
+    --enable-mbstring \
+    --enable-shmop \
+    --enable-soap \
+    --enable-sockets \
+    --enable-sysvmsg \
+    --enable-sysvsem \
+    --enable-sysvshm \
+    --with-zlib=/usr \
+    --enable-zip \
+    --with-curl \
+    --enable-mysqlnd \
+    --with-mysql \
+    --with-mcrypt \
+    --with-openssl \
+    --enable-bcmath >>$INSTALL_LOG
     if [ $? -ne 0 ]; then
         print_error "config php failed"
         exit 1
