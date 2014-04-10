@@ -18,14 +18,14 @@ NGINX_ROOT=/opt/nginx
 NGINX_BIN=$NGINX_ROOT/sbin/nginx
 NGINX_CONFDIR=$NGINX_ROOT/conf/
 NGINX_SPLITLOG=$NGINX_ROOT/sbin/splitlog.sh
-NGINX_VERSION=1.2.9
+NGINX_VERSION=1.4.7
 
 
 PHP_ROOT=/opt/php
 PHP_FPM_BIN=$PHP_ROOT/sbin/php-fpm
 PHP_CONFIG_FILE=$PHP_ROOT/lib/php.ini
 PHP_EXTENSION_DIR=$PHP_ROOT/lib/php/extensions/no-debug-non-zts-20100525
-PHP_VERSION=5.4.15
+PHP_VERSION=5.4.27
 
 ################ Common function ####################
 function print_error {
@@ -144,7 +144,7 @@ function nginx_make_install {
 
     cd nginx-*
     sed -i -e "s/\"$NGINX_VERSION\"/\"0.$NGINX_VERSION\"/g" -e 's/"nginx\/"/"webServer\/"/g' ./src/core/nginx.h
-    ./configure --prefix=$NGINX_ROOT --with-openssl=/usr --with-http_stub_status_module >>$INSTALL_LOG
+    ./configure --prefix=$NGINX_ROOT --with-openssl=/usr --with-http_stub_status_module --with-http_spdy_module --with-http_realip_module --with-http_dav_module --with-http_gunzip_module >>$INSTALL_LOG
     if [ $? -ne 0 ]; then
         print_error "Config nginx failed"
         exit 1
@@ -190,6 +190,9 @@ http {
     proxy_buffers               8 8K;
     proxy_buffer_size           8K;
 
+    upstream php {
+        server unix:/var/run/php-fpm.socket;
+    }
 
     include extra/default;
 
@@ -211,6 +214,8 @@ server {
     location /nginx_status {
         stub_status on;
         access_log off;
+        allow 127.0.0.1;
+        deny all;
     }
 
     location / {
@@ -220,7 +225,7 @@ server {
     access_log  $LOGS_ROOT/nginx/default/access.log  main;
 
     location ~ \.php$ {
-        fastcgi_pass   unix:/var/run/php-fpm.socket;
+        fastcgi_pass   php;
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME  \$document_root\$fastcgi_script_name;
         fastcgi_param  SNDA_APP_ENV product;
@@ -255,6 +260,7 @@ NGINX_ROOT=$NGINX_ROOT
 NGINX_CONFDIR=$NGINX_CONFDIR
 NGINX_BIN=$NGINX_BIN
 NGINX_PID=\$NGINX_ROOT/logs/nginx.pid
+NGINX_LOGDIR=$LOGS_ROOT/nginx
 
 DAY=\`date -d '1 day ago' +%Y-%m-%d\`
 
@@ -266,11 +272,14 @@ do
   fi
 done
 
-error_log=\`cat \$NGINX_CONFDIR/nginx.conf | grep error_log | grep -v '#' | awk '{print \$2}'\`
+error_log=\`cat \$NGINX_CONFDIR/nginx.conf | grep error_log | grep -v '#' | sed -e 's/;//g' | awk '{print \$2}'\`
 mv \$error_log \$error_log.\$DAY
 
 #\$NGINX_BIN -s reload
 kill -USR1 \`cat \$NGINX_PID\`
+
+# delete log files created 1 week ago
+find \$NGINX_LOGDIR -mtime +6 -exec rm -f {} +
 EOF
 
 chmod +x $NGINX_SPLITLOG
@@ -463,7 +472,7 @@ function php5_make_install {
     --enable-zip \
     --with-curl \
     --enable-mysqlnd \
-    --with-mysql \
+    --with-pdo-mysql \
     --with-mcrypt \
     --with-openssl \
     --enable-bcmath >>$INSTALL_LOG
@@ -518,12 +527,12 @@ listen = /var/run/php-fpm.socket
 listen.backlog = 256
 
 pm = dynamic
-pm.max_children = 128
-pm.start_servers = 16
-pm.min_spare_servers = 16
-pm.max_spare_servers = 32
+pm.max_children = 16
+pm.start_servers = 2
+pm.min_spare_servers = 2
+pm.max_spare_servers = 4
 
-pm.max_requests = 204800
+pm.max_requests = 20480
 
 slowlog = $LOGS_ROOT/php/\$pool.log.slow
 request_slowlog_timeout = 3
