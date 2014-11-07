@@ -228,7 +228,6 @@ server {
         fastcgi_pass   php;
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME  \$document_root\$fastcgi_script_name;
-        fastcgi_param  SNDA_APP_ENV product;
         include    fastcgi_params;
     }
 }
@@ -524,7 +523,9 @@ user = $WEB_SERVER_USER
 group = $WEB_SERVER_GROUP
 
 listen = /var/run/php-fpm.socket
-listen.backlog = 256
+listen.backlog = 128
+
+env[CONF] = product
 
 pm = dynamic
 pm.max_children = 16
