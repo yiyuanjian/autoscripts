@@ -1,0 +1,496 @@
+#! /bin/sh
+
+# This yum-like tool is used to install GNU and other HP confidential software on HPUX
+# software dependency list from depothelper. Thanks Richard K. Lloyd and the Connect Internet Solutions Limited.
+# yiyuanjian@gmail.com
+# GPLv3-licensed
+
+####################   Config   #############################################
+
+ftp_server=ftp.xxx.com
+ftp_rootpath=/pub/web
+
+ftp_bin=/usr/bin/ftp
+swinstall_bin=/usr/sbin/swinstall
+swremove_bin=/usr/sbin/swremove
+swlist_bin=/usr/sbin/swlist
+
+swinflags="-x verbose=0 -x enforce_dependencies=false -x global_srp=true \
+            -x allow_incompatible=true -x allow_multiple_versions=true"
+swrmflags="-x verbose=0 -x enforce_dependencies=false -x global_srp=true"
+
+CACHE_DIR=/var/cache/pqsdepot
+installed_file=$CACHE_DIR/_installed.txt
+
+####################   Config end   ############################
+
+####################    Common functions   #########################
+
+function pre_check {
+    # check run user id
+    if [ "$LOGNAME" != "root" ]; then
+        echo "You must run with root"
+        exit
+    fi
+
+    # check OS type uname -s
+    if [ `uname -s` != "HP-UX" ]; then
+        echo "Only support HP-UX 11.11/11.23/11.31, " \
+            "but your system is "`uname -s`
+        exit
+    fi
+
+    # check OS version 11.11/11.23/11.31 uname -r
+    release=`uname -r`
+    case $release in
+        *11.11) release=11.11 ;;
+        *11.23) release=11.23 ;;
+        *11.31) release=11.31 ;;
+        *)
+            echo "Only support HP-UX PA/IA64 11.11/11.23/11.31"
+            exit
+        ;;
+    esac
+
+    # check OS type pa/ia64
+    machine=`uname -m`
+    case $machine in
+        [Ii]tanium|[Ii][Aa]64) arch=ia64 ;;
+        hppa) arch=hppa ;;
+        *)
+            echo "Only support HP-UX PA/IA64 11.11/11.23/11.31"
+            exit
+        ;;
+    esac
+
+    # check ftp bin
+    if [ ! -x "$ftp_bin" ]; then
+        echo "Can't find $ftp_bin or it's not be executed"
+        exit
+    fi
+
+    # check CACHE DIR
+    if [ ! -d "${CACHE_DIR}" ]; then
+        mkdir -p ${CACHE_DIR}
+    fi
+
+    gzlist_cache=${CACHE_DIR}/packages-$arch-$release.gz
+}
+
+function print_sep {
+    if [ "$COLUMNS" = "" ]; then
+        COLUMNS=80
+    fi
+
+    _equres="================================================================="
+    _equres="$_equres========================================================="
+    _equres="$_equres========================================================="
+    _equres="$_equres========================================================="
+    echo $_equres | cut -c2-$COLUMNS
+}
+
+function print_title {
+    print_sep
+    printf " %-20s %-8s %-10s %-35s\n"  \
+        " Package" "Arch" "Version" "Repository"
+    print_sep
+}
+
+function download {
+    _dl_result=0;
+    if [ "$proxy_site" = "" ]; then
+        user="anonymous"
+        site=$ftp_server
+    else
+        user="anonymous@$ftp_server"
+        site="$proxy_site $proxy_port"
+    fi
+
+    echo "Downloading ..."
+    
+    for file in $@
+    do
+        bfile=`basename $file`
+        #TODO: check file exists, if exist, use cache
+        printf "  %s" "$bfile"
+        (
+        echo "user $user download@${hostname}"
+        echo "binary"
+        echo "get ${ftp_rootpath}${file} ${CACHE_DIR}/${bfile}"
+        echo "quit"
+        ) | $ftp_bin -i -n $site #> /dev/null 2>&1
+        if [ -f "${CACHE_DIR}/${bfile}"  ]; then
+            printf "\r  %-60s %-10s\n" "$bfile" " OK "
+        else
+            _dl_result=$(($_dl_result + 1));
+            printf "\r  %-60s %-10s\n" "$bfile" " FAIL "
+        fi
+    done
+
+    if [ "$_dl_result" -eq 0 ]; then
+        echo "Downloading Complete!"
+        return 0;
+    else
+        echo "Download something failed"
+        return 1;
+    fi
+}
+
+function resolve_dependency {
+    get_packagelist
+    echo "Resolving Dependencies"
+    echo "--> Running Transcation check"
+    not_installed=`check_installed $@ | grep "Not installed" | 
+            awk '{print $1'} | awk -F '-' '{print $1}'`
+    if [ "$not_installed" = "" ]; then
+        echo "---> Not any package need be installed."
+        echo "Dependencies Resolved."
+        echo "Quit"
+        exit
+    fi
+    echo "---> Package(s) will be installed"
+    all_not_installed=$not_installed
+    while [ "$not_installed" != "" ]
+    do 
+        not_installed=$(check_installed `get_dep $not_installed` | 
+            grep "Not installed" | awk '{print $1'} | awk -F '-' '{print $1}')
+        all_not_installed="$all_not_installed $not_installed"
+    done
+
+    all_not_installed=`echo $all_not_installed | awk '
+        BEGIN {rev="";} 
+        {
+            for(i=NF; i > 0; i--) {
+                if(!index(rev, " "$i" ")) {
+                    rev=rev" "$i" "; 
+                }
+            }
+        }
+        END {print rev}'`
+    echo "--> Finished Dependency Resolution"
+
+    echo ""
+    echo "Dependencies Resolved"
+}
+
+function get_packagelist {
+    package_list_file=packages-${arch}-${release}.gz
+    # check if package list file exist and available
+    if [ "`find $CACHE_DIR -type f -name $package_list_file -mtime -1`" = "" ] 
+    then
+        echo "Need download package list first"
+        download /helper/$package_list_file
+    else
+        echo "Using Cache file, or you need run \"$pro_name clean\" before"
+    fi
+}
+
+
+function install_depot {
+    echo $@;
+    resolve_dependency $@
+
+    echo ""
+    print_title
+    echo "Installing:"
+
+    count=0
+    packages=""
+    for x in $all_not_installed
+    do
+        line=`gzcat ${CACHE_DIR}/packages-$arch-$release.gz | grep "^$x-"`
+        repos=`echo $line | awk -F '|' '{print $2}'`
+        pkg=`echo $line | awk -F '-' '{print $1}'`
+        ver=`echo $line | awk -F '|' '{print $1}' | awk -F '-' '{print $2}'`
+        packages=$packages" "$repos/$pkg-$ver/$pkg-$ver-$arch-$release.depot.gz
+        printf " %-20s %-8s %-10s %-35s \n" "$pkg" "$arch" "$ver" "$repos"
+        count=$(($count + 1))
+    done
+
+    echo "\nTransaction Summary"
+    print_sep
+    echo "Install        $count Package(s)\n"
+
+    printf "Is this ok [y|N]: "
+    read input
+
+    if [ "$input" != "y" ]; then
+        echo "Installation exit."
+        exit 1
+    fi
+
+    # creat package list
+    echo $packages;
+    
+    download $packages
+    if [ "$?" -ne 0 ]; then
+        echo "Meet something error. Stop."
+        exit
+    fi
+
+    echo "Running Transaction" 
+
+    install_success=1
+    installed_s=""
+    installed_f=""
+    for depot in $packages
+    do
+        pv=`basename $depot | awk -F '-' '{print $1"-"$2}'`
+        unpack=`basename $depot | sed -e 's/\.gz$//g'`
+        gzcat $CACHE_DIR/$(basename $depot) > ${CACHE_DIR}/$unpack
+        printf " %-60s %-18s" $pv "installing"..
+        $swinstall_bin $swinflags -s ${CACHE_DIR}/$unpack \* 
+        ret=$?
+        rm -f ${CACHE_DIR}/$unpack
+
+        if [ "$ret" -ne 0 ]; then
+            printf "\r %-59s %-18s\n" $pv " Failed "
+            install_success=0
+            installed_f=$installed_f" "$pv
+            break
+        else
+            printf "\r %-59s %-18s\n" $pv "   OK   "
+            installed_s=$installed_s" "$pv
+        fi
+
+        echo "\nInstalled:"
+        for x in $installed_s; do echo " $x"; done
+        echo "\nNot installed:"
+        for x in $installed_f; do echo " $x"; done
+
+        echo "\nComplete!"
+
+        exit 0;
+    done
+}
+
+function remove_depot {
+    if [ $# -eq 0 ]; then
+        print_help
+        exit 1
+    fi
+
+    get_packagelist
+
+    echo "\nRun Precheck Transcation\n"
+    installed=$(check_installed $@ | grep "Installed" | awk '{print $1}');
+    if [ "$installed" = "" ]; then
+        echo "Not any packages be remove"
+        exit 1
+    fi
+
+    
+    print_sep
+    printf " %-20s %-18s  %-8s %-15s\n" "Packages" "Version" "Arch" "Release"
+    print_sep
+    
+    echo "Uninstalling:"
+    for x in $installed
+    do
+        echo $x | sed -e 's/-/ /g' | read p v
+        printf " %-20s %-18s  %-8s %-15s\n" "$p" "$v" "$arch" "$release"
+    done
+
+    printf "\nIs this ok [y|N]: "
+    read x
+    if [ "$x" != "y" ]; then
+        echo "Aborted"
+        exit 1
+    fi
+
+    echo "\nRunning Transcation"
+
+    for x in $installed
+    do
+        printf "  %-58s %-18s" "$x" "Uninstalling"
+        echo $x | sed -e 's/-/ /g' | read p v
+        $swremove_bin $swrmflags $p
+        if [ "$?" -eq 0 ]; then
+            printf "\r  %-57s %-18s\n" "$x" " OK "
+        else
+            printf "\r  %-57s %-18s\n" "$x" "FAIL"
+        fi
+    done
+
+    echo "\nComplete!"
+
+    exit 0
+}
+
+function search {
+    if [ $# -eq 0 ]; then
+        print_help
+        exit 1
+    fi
+
+    depot_name=$1
+
+    get_packagelist
+
+    echo "\nRunning Search Transcation\n"
+
+    gzcat $gzlist_cache | awk -F '|' '{print " "$1}' | grep -i "$1"
+
+    echo "\nComplete!";
+    exit 0
+}
+
+function get_dep {
+    depends=$(
+    for depot in $@
+    do
+        for dep in `gzcat $gzlist_cache | \
+        grep -i "^$depot-" | tail -n 1 | awk -F '|' '{print $3}'`
+        do
+            echo `gzcat $gzlist_cache | \
+            grep "^${dep}-" | tail -n 1 | awk -F '|' '{print $1}' | \
+            awk -F '-' '{print $1}'`
+        done
+    done | sort -u)
+
+    echo $depends;    
+} 
+
+function deplist {
+
+    check_installed `get_dep $@`
+
+}
+
+function get_installed_list {
+    $swlist_bin -a revision 2>/dev/null |
+        grep -v -e '^$' -e '^#$' -e '^  PH' |
+        awk 'BEGIN {notin=0;}
+        {
+            if (notin) printf("%s-%s\n", $1, $2);
+            else notin=match($0, "not contained in a Bundle");
+        }' > $installed_file
+
+    return $?
+}
+
+function check_installed {
+
+    get_installed_list    
+
+    for depot in $@
+    do
+        x=`cat $installed_file | grep "^$depot-"`
+        if [ "$x" = "" ]; then
+            printf "  %-50s %-16s  \n" $depot "Not installed"
+        else
+            printf "  %-50s %-16s  \n" $x "  Installed  "
+        fi
+    done
+}
+
+function deped {
+    echo $@; exit
+    depot=$1
+    gzcat $gzlist_cache | grep -i $depot
+}
+
+function list {
+    get_packagelist
+    get_installed_list
+
+    print_sep
+    printf " %-20s %-18s  %-8s %-15s\n" "Packages" "Version" "Arch" "Release"
+    print_sep
+    
+    echo "Installed:"
+    for x in `cat $installed_file`
+    do
+        if [ "`gzcat $gzlist_cache | grep \"^$x\"`" != "" ]; then
+            echo $x | sed -e 's/-/ /g' | read p v
+            printf " %-20s %-18s  %-8s %-15s\n" "$p" "$v" "$arch" "$release"
+        fi
+    done
+    echo "\nComplete!"
+
+    exit 0
+     
+}
+
+function cleancache {
+    echo "Run clean..."
+    if [ "$#" -eq 2 ]; then
+        echo "Clean all cached files"
+        rm -rf ${CACHE_DIR}/*
+    else
+        echo "Clean package list and temp files"
+        rm -f ${CACHE_DIR}/packages-*
+        rm -f $CACHE_DIR/_*
+    fi
+
+    echo "\nComplete!"
+}
+
+function makecache {
+    download /helper/package-$arch-$release.gz
+}
+
+function parse_args {
+    if [ $# -eq 0 ]; then
+        print_help
+        exit
+    fi
+
+    while [ "$1" != "" ]
+    do
+        case "$1" in
+            -\?|-h|--help|help) print_help ;;
+            -p|--proxy)
+                proxy_site=`echo $2 | cut -d: -f1`
+                proxy_port=`echo $2 | cut -d: -f2`
+                shift ;;
+            install)
+                shift
+                install_depot $@
+            ;;
+            remove) shift; remove_depot $@ ;;
+            clean) cleancache $@ ;;
+            makecache) shift; makecache ;;
+            list) list $@ ;;
+            deplist) shift; deplist $@ ;;
+            #TODO:deped) shift; deped $@ ;;
+            search) shift; search $@ ;;
+
+            *) break ;;
+        esac
+        shift
+    done
+}
+
+function print_help {
+    echo "Usage: $pro_name [OPTIONS] COMMAND [ARGS]";
+    echo " COMMANDS:"
+    echo "  install <packages>,  install packages, use space to splist"
+    echo "  remove <packages>,  remove packages, use space to split list"
+    echo "  list, list installed packages"
+    echo "  search <package>, search packages from repository"
+    echo "  clean [all], clean cache list, all to clean all file"
+    echo "  makecache, download package list"
+    echo "  deplist <packages>, the dependency for packages"
+    echo "  deped <packages>, used by others"
+    echo "  help, print this message"
+    echo ""
+    echo " OPTIONS:"
+    echo " -?|-h|--help, print this message"
+    echo " -p|--proxy proxy_site:port, setting download proxy"
+    echo " -n, not use cache"
+    echo " -y, not need confirm"
+    echo ""
+    exit
+}
+
+####################   Common functions end  #############
+
+####################   Main   #######################
+pro_name=$0
+hostname=`hostname`
+
+pre_check
+parse_args $@
+
+exit 0
